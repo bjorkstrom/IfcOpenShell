@@ -44,10 +44,14 @@
 #include <sstream>
 #include <set>
 #include <time.h>
+#include <errno.h>
+
 
 #if USE_VLD
 #include <vld.h>
 #endif
+
+#define CENTER_OFFSET_FILE "center_offset.bin"
 
 const std::string DEFAULT_EXTENSION = "obj";
 const std::string TEMP_FILE_EXTENSION = ".tmp";
@@ -149,6 +153,27 @@ void parse_filter(geom_filter &, const std::vector<std::string>&);
 std::vector<IfcGeom::filter_t> setup_filters(const std::vector<geom_filter>&, const std::string&);
 
 bool init_input_file(const std::string& filename, IfcParse::IfcFile& ifc_file, bool no_progress, bool mmap);
+
+bool
+dump_center_offset(double x, double y, double z)
+{
+    FILE *f = fopen(CENTER_OFFSET_FILE, "w");
+    if (f == NULL)
+    {
+        printf("error opening '" CENTER_OFFSET_FILE "' file for writing: %s\n",
+               strerror(errno));
+        return false;
+    }
+
+    printf("writing to " CENTER_OFFSET_FILE ": %f %f %f sizeof(x) %d\n ", x, y, z, sizeof(x));
+    fwrite(&x, sizeof(x), 1, f);
+    fwrite(&y, sizeof(y), 1, f);
+    fwrite(&z, sizeof(z), 1, f);
+
+    fclose(f);
+    return true;
+}
+
 
 int main(int argc, char** argv)
 {
@@ -616,6 +641,12 @@ int main(int argc, char** argv)
             offset[0] = -center.X();
             offset[1] = -center.Y();
             offset[2] = -center.Z();
+            printf("Offset %f %f %f\n", offset[0], offset[1], offset[2]);
+            if (!dump_center_offset(center.X(), center.Y(), center.Z()))
+            {
+                delete serializer;
+                return EXIT_FAILURE;
+            }
         } else {
             if (sscanf(offset_str.c_str(), "%lf;%lf;%lf", &offset[0], &offset[1], &offset[2]) != 3) {
                 std::cerr << "[Error] Invalid use of --model-offset\n";
