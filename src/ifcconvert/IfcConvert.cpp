@@ -51,7 +51,7 @@
 #include <vld.h>
 #endif
 
-#define CENTER_OFFSET_FILE "center_offset.bin"
+#define CENTER_OFFSET_FILE "center_offset.json"
 
 const std::string DEFAULT_EXTENSION = "obj";
 const std::string TEMP_FILE_EXTENSION = ".tmp";
@@ -165,10 +165,13 @@ dump_center_offset(double x, double y, double z)
         return false;
     }
 
-    printf("writing to " CENTER_OFFSET_FILE ": %f %f %f sizeof(x) %d\n ", x, y, z, sizeof(x));
-    fwrite(&x, sizeof(x), 1, f);
-    fwrite(&y, sizeof(y), 1, f);
-    fwrite(&z, sizeof(z), 1, f);
+    printf("writing to " CENTER_OFFSET_FILE ": %f %f %f\n ", x, y, z);
+    fprintf(f,
+            "{"
+            "\"x\": %f, "
+            "\"y\": %f, "
+            "\"z\": %f"
+            "}", x, y, z);
 
     fclose(f);
     return true;
@@ -641,7 +644,7 @@ int main(int argc, char** argv)
             offset[0] = -center.X();
             offset[1] = -center.Y();
             offset[2] = -center.Z();
-            printf("Offset %f %f %f\n", offset[0], offset[1], offset[2]);
+
             if (!dump_center_offset(center.X(), center.Y(), center.Z()))
             {
                 delete serializer;
