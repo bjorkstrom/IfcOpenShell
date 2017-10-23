@@ -177,39 +177,36 @@ dump_center_offset(double x, double y, double z)
     return true;
 }
 
-static void find_center(IfcGeom::Iterator<real_t> &context_iterator)
+
+struct MeshBounds
 {
-    // TODO: does not work for is_tsselated == false
+    gp_XYZ bounds_min_ = gp_XYZ(
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity());
 
-    gp_XYZ bounds_min_;
-    gp_XYZ bounds_max_;
+    gp_XYZ bounds_max_ = gp_XYZ(
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity());;
 
-    for (int i = 1; i < 4; ++i) {
-        bounds_min_.SetCoord(i, std::numeric_limits<double>::infinity());
-        bounds_max_.SetCoord(i, -std::numeric_limits<double>::infinity());
+    gp_XYZ GetCenter()
+    {
+        return (bounds_min_ + bounds_max_) * 0.5;
     }
 
-    Logger::Status("Looking for center...");
-    do {
-        IfcGeom::Element<real_t> *geom_object = context_iterator.get();
-        IfcGeom::TriangulationElement<real_t> *o =
-            static_cast<IfcGeom::TriangulationElement<real_t>*>(geom_object);
-        const IfcGeom::Representation::Triangulation<real_t>& mesh = o->geometry();
+    void AddElement(const IfcGeom::TriangulationElement<real_t>* o)
+    {
         const IfcGeom::Transformation<real_t>& trans = o->transformation();
+        std::vector<real_t> verts = o->geometry().verts();
 
-        std::vector<real_t> verts = mesh.verts();
-
-        printf("geom_object %p, o %p \n", geom_object, o);
         for (size_t i = 0; i < verts.size(); i += 3)
         {
             real_t x = verts[i];
             real_t y = verts[i+1];
             real_t z = verts[i+2];
 
-            printf("before %lf %lf %lf\n", x, y, z);
             trans.data().Transforms(x, y, z);
-
-            printf("after %lf %lf %lf\n", x, y, z);
 
             bounds_min_.SetX(std::min(bounds_min_.X(), x));
             bounds_min_.SetY(std::min(bounds_min_.Y(), y));
@@ -218,17 +215,8 @@ static void find_center(IfcGeom::Iterator<real_t> &context_iterator)
             bounds_max_.SetY(std::max(bounds_max_.Y(), y));
             bounds_max_.SetZ(std::max(bounds_max_.Z(), z));
         }
-    } while (context_iterator.next());
-
-    printf("min %lf %lf %lf\n", bounds_min_.X(), bounds_min_.Y(), bounds_min_.Z());
-    printf("max %lf %lf %lf\n", bounds_max_.X(), bounds_max_.Y(), bounds_max_.Z());
-
-    gp_XYZ center = (bounds_min_ + bounds_max_) * 0.5;
-    printf("center %lf %lf %lf\n", center.X(), center.Y(), center.Z());
-
-    Logger::Status("done looking for center");
-}
-
+    }
+};
 
 int main(int argc, char** argv)
 {
@@ -717,10 +705,6 @@ int main(int argc, char** argv)
         Logger::Notice(msg.str());
     }
 
-    if (center_model)
-    {
-        find_center(context_iterator);
-    }
 
 
 	Logger::Status("Creating geometry...");
@@ -736,13 +720,18 @@ int main(int argc, char** argv)
 	// non-null return value guarantees that a successfully processed product is 
 	// available. 
 	size_t num_created = 0;
-	
+
+	MeshBounds mb;
 	do {
         IfcGeom::Element<real_t> *geom_object = context_iterator.get();
 
 		if (is_tesselated)
 		{
-			serializer->write(static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object));
+            const IfcGeom::TriangulationElement<real_t>* o =
+                static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object);
+            mb.AddElement(o);
+            serializer->write(o);
+
 		}
 		else
 		{
@@ -758,6 +747,17 @@ int main(int argc, char** argv)
 
     Logger::Status("\rDone creating geometry (" + boost::lexical_cast<std::string>(num_created) +
         " objects)                                ");
+
+    if (center_model)
+    {
+        // TODO: this whole center model does not work for is_tsselated == false
+        gp_XYZ center = mb.GetCenter();
+        printf("center (%lf, %lf, %lf)\n", center.X(), center.Y(), center.Z());
+        double* offset = serializer->settings().offset;
+        offset[0] = -center.X();
+        offset[1] = -center.Y();
+        offset[2] = -center.Z();
+    }
 
     serializer->finalize();
 	delete serializer;

@@ -213,11 +213,6 @@ void ColladaSerializer::ColladaExporter::ColladaScene::add(
 		{ (double)posmatrix[2], (double)posmatrix[5], (double)posmatrix[8], (double)posmatrix[11] },
 		{ 0, 0, 0, 1 }
 	};
-	
-	/// @todo: TFK: Rather than applying this offset to all leafs (which might be undesirable) should this offset be applied to a node higher up in the hierarchy?
-    matrix_array[0][3] += serializer->settings().offset[0];
-    matrix_array[1][3] += serializer->settings().offset[1];
-    matrix_array[2][3] += serializer->settings().offset[2];
 
 	delete relative_trsf;
 
@@ -459,26 +454,45 @@ std::string ColladaSerializer::ColladaExporter::differentiateSlabTypes(const Ifc
 	return result;
 }
 
+static std::vector<real_t>
+offset_verts(std::vector<real_t> verts, double* offset)
+{
+    for (size_t i = 0; i < verts.size(); i += 3)
+    {
+        printf("offsetting (%lf, %lf, %lf) with (%lf, %lf, %lf) \n",
+               verts[i], verts[i+1], verts[i+2],
+               offset[0], offset[1], offset[2]);
+        verts[i] += offset[0];
+        verts[i+1] += offset[1];
+        verts[i+2] += offset[2];
+    }
+
+    return verts;
+}
+
 void ColladaSerializer::ColladaExporter::endDocument() {
 	// In fact due the XML based nature of Collada and its dependency on library nodes,
 	// only at this point all objects are written to the stream.
 	materials.write();
 	bool use_hierarchy = serializer->settings().get(SerializerSettings::USE_ELEMENT_HIERARCHY);
-	
+
 	std::set<std::string> geometries_written;
 
 	//if the setting USE_ELEMENT_HIERARCHY is in use, we sort the deferreds objects by their parents.
-	
+
 	if (use_hierarchy) {
 		std::sort(deferreds.begin(), deferreds.end());
 	}
-	
+
 	for (std::vector<DeferredObject>::const_iterator it = deferreds.begin(); it != deferreds.end(); ++it) {
 		if (geometries_written.find(it->representation_id) != geometries_written.end()) {
 			continue;
 		}
 		geometries_written.insert(it->representation_id);
-		geometries.write(it->representation_id, it->type, it->vertices, it->normals, it->faces, it->edges, it->material_ids, it->materials, it->uvs);
+        geometries.write(it->representation_id, it->type,
+                         offset_verts(it->vertices, serializer->settings().offset),
+                         it->normals, it->faces, it->edges,
+                         it->material_ids, it->materials, it->uvs);
 	}
 	geometries.close();
 
