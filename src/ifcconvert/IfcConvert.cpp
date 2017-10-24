@@ -684,12 +684,6 @@ int main(int argc, char** argv)
             offset[0] = -center.X();
             offset[1] = -center.Y();
             offset[2] = -center.Z();
-
-            if (!dump_center_offset(center.X(), center.Y(), center.Z()))
-            {
-                delete serializer;
-                return EXIT_FAILURE;
-            }
         } else {
             if (sscanf(offset_str.c_str(), "%lf;%lf;%lf", &offset[0], &offset[1], &offset[2]) != 3) {
                 std::cerr << "[Error] Invalid use of --model-offset\n";
@@ -752,11 +746,16 @@ int main(int argc, char** argv)
     {
         // TODO: this whole center model does not work for is_tsselated == false
         gp_XYZ center = mb.GetCenter();
-        printf("center (%lf, %lf, %lf)\n", center.X(), center.Y(), center.Z());
         double* offset = serializer->settings().offset;
         offset[0] = -center.X();
         offset[1] = -center.Y();
         offset[2] = -center.Z();
+
+        if (!dump_center_offset(center.X(), center.Y(), center.Z()))
+        {
+            delete serializer;
+            return EXIT_FAILURE;
+        }
     }
 
     serializer->finalize();

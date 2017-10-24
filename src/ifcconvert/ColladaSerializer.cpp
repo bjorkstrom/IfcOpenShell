@@ -195,24 +195,38 @@ void ColladaSerializer::ColladaExporter::ColladaScene::add(
 	// The matrix attribute of an entity is basically a 4x3 representation of its ObjectPlacement.
 	// Note that this placement is absolute, ie it is multiplied with all parent placements.
 
+
+    double* offset = serializer->settings().offset;
+    gp_Trsf offset_trsf;
+    offset_trsf.SetTranslation(gp_Vec(-offset[0], -offset[1], -offset[2]));
+
+    IfcGeom::Transformation<real_t> offsetTrans(transformation, offset_trsf);
+
+
 	IfcGeom::Transformation<real_t>* relative_trsf = 0;
-	const IfcGeom::Transformation<real_t>* transformation_towrite = &transformation;
-	
+    const IfcGeom::Transformation<real_t> transformation_towrite =
+       transformation.multiplied(offsetTrans);
+
 	// If this is not the first parent, get the relative placement
 	if (parentNodes.size() > 0)
 	{
-		relative_trsf = new IfcGeom::Transformation<real_t>(matrixStack.top().multiplied(transformation));
-		transformation_towrite = relative_trsf;
+        abort();
+//		relative_trsf = new IfcGeom::Transformation<real_t>(matrixStack.top().multiplied(transformation));
+//		transformation_towrite = relative_trsf;
 	}
 
-	const std::vector<real_t>& posmatrix = transformation_towrite->matrix().data();
+	const std::vector<real_t>& posmatrix = transformation_towrite.matrix().data();
 
 	double matrix_array[4][4] = {
 		{ (double)posmatrix[0], (double)posmatrix[3], (double)posmatrix[6], (double)posmatrix[9] },
 		{ (double)posmatrix[1], (double)posmatrix[4], (double)posmatrix[7], (double)posmatrix[10] },
 		{ (double)posmatrix[2], (double)posmatrix[5], (double)posmatrix[8], (double)posmatrix[11] },
 		{ 0, 0, 0, 1 }
-	};
+    };
+
+    matrix_array[0][3] += offset[0];
+    matrix_array[1][3] += offset[1];
+    matrix_array[2][3] += offset[2];
 
 	delete relative_trsf;
 
@@ -459,9 +473,6 @@ offset_verts(std::vector<real_t> verts, double* offset)
 {
     for (size_t i = 0; i < verts.size(); i += 3)
     {
-        printf("offsetting (%lf, %lf, %lf) with (%lf, %lf, %lf) \n",
-               verts[i], verts[i+1], verts[i+2],
-               offset[0], offset[1], offset[2]);
         verts[i] += offset[0];
         verts[i+1] += offset[1];
         verts[i+2] += offset[2];
