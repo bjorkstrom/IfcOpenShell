@@ -29,6 +29,7 @@
 #include <COLLADASWBaseInputElement.h>
 #include <COLLADASWAsset.h>
 
+#include <numeric>
 #include <string>
 #include <cmath>
 
@@ -213,11 +214,6 @@ void ColladaSerializer::ColladaExporter::ColladaScene::add(
 		{ 0, 0, 0, 1 }
 	};
 	
-	/// @todo: TFK: Rather than applying this offset to all leafs (which might be undesirable) should this offset be applied to a node higher up in the hierarchy?
-    matrix_array[0][3] += serializer->settings().offset[0];
-    matrix_array[1][3] += serializer->settings().offset[1];
-    matrix_array[2][3] += serializer->settings().offset[2];
-
 	delete relative_trsf;
 
 	node.start();
@@ -450,6 +446,95 @@ std::string ColladaSerializer::object_id(const IfcGeom::Element<real_t>* o) /*ov
     return GeometrySerializer::object_id(o);
 }
 
+static real_t accumulate_max_abs(real_t accumulator, real_t val)
+{
+	return std::max(accumulator, std::abs(val));
+}
+
+///
+/// returns max absolute value found in the vector
+///
+static real_t vect_max_abs(const std::vector<real_t>& vals)
+{
+	return std::accumulate(vals.begin(), vals.end(), 0, accumulate_max_abs);
+}
+
+void ColladaSerializer::ColladaExporter::DeferredObject::applyOffset(double *offset)
+{
+	/*
+	 * The goal is to minimize the absolute value of numbers used for both
+	 * mesh vertices and the node's transformation matix. This to allow
+	 * to render the resulting DAE file using 32-bit floats, which is
+	 * how it's is commonly done by the game engines.
+	 *
+	 * We assume that the provided offset translates all coordinates close
+	 * to origo, thus we only need coordinates with small absolute values
+	 * to express all geometry in the IFC.
+	 *
+	 * This is a simple approach based on the fact that most IFC with large
+	 * global coordinates have either global coordinates
+	 * used for mesh vertices _or_ the have local coordinates for meshes
+	 * and have a large transformation matrix.
+	 *
+	 * We try to guess the style of the IFC and then apply new offset to
+	 * either the transformation matrix or the mesh vertices.
+	 */
+
+	real_t trans_ma = vect_max_abs(transformation.matrix().data());
+	real_t verts_ma = vect_max_abs(vertices);
+
+	if (trans_ma > verts_ma)
+	{
+		/*
+		 * seems that global coordinates are stored in the transformation matrix,
+		 * apply new offset to the matrix
+		 */
+
+		/* create transformation that translates to new offset */
+		gp_Trsf offset_trsf;
+		offset_trsf.SetTranslation(gp_Vec(offset[0], offset[1], offset[2]));
+		IfcGeom::Transformation<real_t> offsetTrans(transformation,  offset_trsf);
+
+		/* apply translation to offset to current transformation */
+		transformation = offsetTrans.multiplied(transformation);
+	}
+	else
+	{
+		/*
+		 * seems that global coordinates are stored directly in the
+		 * mesh coordinates, apply new offset to vertices
+		 */
+
+		/* apply offset to vertices */
+		for (size_t i = 0; i < vertices.size(); i += 3)
+		{
+			vertices[i] += offset[0];
+			vertices[i+1] += offset[1];
+			vertices[i+2] += offset[2];
+		}
+
+		/*
+		 * update transformation to take into account the
+		 * vertices have neen chaged, so that possible rotations
+		 * and scaling are still correct
+		 *
+		 * e.g. new_trans = move_to_offset * old_trans * -move_to_offset
+		 */
+
+		/* create transformation that translates to new offset */
+		gp_Trsf offset_trsf;
+		offset_trsf.SetTranslation(gp_Vec(offset[0], offset[1], offset[2]));
+		IfcGeom::Transformation<real_t> offsetTrans(transformation,  offset_trsf);
+
+		/* create transformation that reverses move to new offset */
+		gp_Trsf offset_trsf_rev;
+		offset_trsf_rev.SetTranslation(gp_Vec(-offset[0], -offset[1], -offset[2]));
+		IfcGeom::Transformation<real_t> offsetTrans_rev(transformation,  offset_trsf_rev);
+
+		transformation = offsetTrans.multiplied(transformation).multiplied(offsetTrans_rev);
+	}
+}
+
 void ColladaSerializer::ColladaExporter::endDocument() {
 	// In fact due the XML based nature of Collada and its dependency on library nodes,
 	// only at this point all objects are written to the stream.
@@ -463,9 +548,18 @@ void ColladaSerializer::ColladaExporter::endDocument() {
 	if (use_hierarchy) {
 		std::sort(deferreds.begin(), deferreds.end());
 	}
+
+	/// TODO: this should only be done when 'center-model' flag is specified
+	double *offset = serializer->settings().offset;
+	for (std::vector<DeferredObject>::iterator it = deferreds.begin(); it != deferreds.end(); ++it)
+	{
+		(*it).applyOffset(offset);
+	}
 	
 	for (std::vector<DeferredObject>::const_iterator it = deferreds.begin(); it != deferreds.end(); ++it) {
 		if (geometries_written.find(it->representation_id) != geometries_written.end()) {
+			printf("WARNING: applying offset when geometries are shared is not implemented,\n"
+		           "WARNING: your geometry is possibly generated incorrectly");
 			continue;
 		}
 		geometries_written.insert(it->representation_id);

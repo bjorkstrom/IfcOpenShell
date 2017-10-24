@@ -189,6 +189,7 @@ private:
 
 			std::vector<const IfcGeom::Element<real_t>*>& parents() { return parents_; }
 			const std::vector<const IfcGeom::Element<real_t>*>& parents() const { return parents_; }
+			void applyOffset(double *offset);
 		};
 		COLLADABU::NativeString filename;
 		COLLADASW::StreamWriter stream;
