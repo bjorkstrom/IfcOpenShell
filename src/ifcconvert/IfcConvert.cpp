@@ -79,6 +79,46 @@ const std::string TEMP_FILE_EXTENSION = ".tmp";
 
 namespace po = boost::program_options;
 
+struct MeshBounds
+{
+    gp_XYZ bounds_min = gp_XYZ(
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity());
+
+    gp_XYZ bounds_max = gp_XYZ(
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity());;
+
+    gp_XYZ GetCenter()
+    {
+        return (bounds_min + bounds_max) * 0.5;
+    }
+
+    void AddElement(const IfcGeom::TriangulationElement<real_t>* o)
+    {
+        const IfcGeom::Transformation<real_t>& trans = o->transformation();
+        std::vector<real_t> verts = o->geometry().verts();
+
+        for (size_t i = 0; i < verts.size(); i += 3)
+        {
+            real_t x = verts[i];
+            real_t y = verts[i+1];
+            real_t z = verts[i+2];
+
+            trans.data().Transforms(x, y, z);
+
+            bounds_min.SetX(std::min(bounds_min.X(), x));
+            bounds_min.SetY(std::min(bounds_min.Y(), y));
+            bounds_min.SetZ(std::min(bounds_min.Z(), z));
+            bounds_max.SetX(std::max(bounds_max.X(), x));
+            bounds_max.SetY(std::max(bounds_max.Y(), y));
+            bounds_max.SetZ(std::max(bounds_max.Z(), z));
+        }
+    }
+};
+
 void print_version()
 {
     cout_ << "IfcOpenShell " << IfcSchema::Identifier << " IfcConvert " << IFCOPENSHELL_VERSION << " (OCC " << OCC_VERSION_STRING_EXT << ")\n";
@@ -750,21 +790,16 @@ int main(int argc, char** argv) {
 				Logger::Error("Cannot use --center-model together with --{site,building}-local-placement");
 				return EXIT_FAILURE;
 			}
-
             if (!quiet) Logger::Status("Computing bounds...");
             context_iterator.compute_bounds();
             if (!quiet) Logger::Status("Done!");
 
+	    // TODO: this is not used when generating DAE file, we overwrite
+	    // offset with new value below
             gp_XYZ center = (context_iterator.bounds_min() + context_iterator.bounds_max()) * 0.5;
             offset[0] = -center.X();
             offset[1] = -center.Y();
             offset[2] = -center.Z();
-
-            if (!dump_center_offset(center.X(), center.Y(), center.Z()))
-            {
-                delete serializer;
-                return EXIT_FAILURE;
-            }
         } else {
             if (sscanf(offset_str.c_str(), "%lf;%lf;%lf", &offset[0], &offset[1], &offset[2]) != 3) {
                 cerr_ << "[Error] Invalid use of --model-offset\n";
@@ -795,12 +830,17 @@ int main(int argc, char** argv) {
 	// available. 
 	size_t num_created = 0;
 	
+	MeshBounds mesh_bounds;
 	do {
         IfcGeom::Element<real_t> *geom_object = context_iterator.get();
 
 		if (is_tesselated)
 		{
-			serializer->write(static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object));
+			const IfcGeom::TriangulationElement<real_t>* elm =
+				static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object);
+
+			mesh_bounds.AddElement(elm);
+			serializer->write(elm);
 		}
 		else
 		{
@@ -838,6 +878,23 @@ int main(int argc, char** argv) {
 	} else {
 		Logger::Status("\rDone creating geometry (" + boost::lexical_cast<std::string>(num_created) +
 			" objects)                                ");
+	}
+
+	if (center_model)
+	{
+		// TODO: this probably only works while generating DAE files
+		gp_XYZ center = mesh_bounds.GetCenter();
+		double* offset = serializer->settings().offset;
+
+		offset[0] = -center.X();
+		offset[1] = -center.Y();
+		offset[2] = -center.Z();
+
+		if (!dump_center_offset(center.X(), center.Y(), center.Z()))
+		{
+			delete serializer;
+			return EXIT_FAILURE;
+		}
 	}
 
     serializer->finalize();
