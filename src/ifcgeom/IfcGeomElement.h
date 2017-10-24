@@ -67,6 +67,17 @@ namespace IfcGeom {
 			, trsf_(trsf)
 			, matrix_(settings, trsf) 
 		{}
+
+		///
+		/// Create tranformation with the same setting as 'other'
+		/// transformation, but new transform data specified with trsf.
+		///
+		Transformation(const Transformation& other, const gp_Trsf& trsf)
+			: settings_(other.settings_)
+			, trsf_(trsf)
+			, matrix_(other.settings_, trsf)
+		{}
+
 		const gp_Trsf& data() const { return trsf_; }
 		const Matrix<P>& matrix() const { return matrix_; }
 
