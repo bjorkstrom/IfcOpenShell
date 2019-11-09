@@ -892,7 +892,6 @@ int main(int argc, char** argv) {
 
 		if (!dump_center_offset(center.X(), center.Y(), center.Z()))
 		{
-			delete serializer;
 			return EXIT_FAILURE;
 		}
 	}
